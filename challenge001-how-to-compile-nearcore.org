@@ -1,0 +1,270 @@
+#+TITLE: 如何运行Near节点并加入验证人
+
+* 创建钱包账户
+访问官方钱包网站https://wallet.betanet.near.org/create/ 来创建账户。
+
+选择用户名：
+
+[[file:img/createwallet1.png]]
+
+
+选择备份方式：
+
+[[file:img/createwallet2.png]]
+
+
+
+备份助记词：
+
+[[file:img/createwallet3.png]]
+
+
+验证助记词：
+
+
+[[file:img/createwallet4.png]]
+
+
+创建完成：
+
+
+[[file:img/createwallet5.png]]
+
+
+
+
+
+
+
+
+
+* 安装工具
+
+** near-shell
+
+near-shell是一款js编写的方便与near链交互的工具。
+
+保证node的版本在10以上，可以采用npm来安装:
+
+#+BEGIN_SRC
+npm install -g near-shell
+
+#+END_SRC
+
+详细可参考: https://github.com/near/near-shell
+
+
+
+** nearup
+
+nearup是用来管理near节点的python编写的工具, https://github.com/near/nearup
+
+安装如下:
+
+#+BEGIN_SRC
+sudo apt update
+sudo apt install python3 git curl
+curl --proto '=https' --tlsv1.2 -sSfL https://up.near.dev | python3
+
+#+END_SRC
+
+* 登录账户
+
+** 创建工作目录
+
+#+BEGIN_SRC
+mkdir stakewars && cd stakewars
+
+#+END_SRC
+
+在工作目录下，执行:
+
+#+BEGIN_SRC
+near login
+
+#+END_SRC
+
+
+会显示如下url:
+
+#+BEGIN_SRC
+Please authorize NEAR Shell on at least one of your accounts.
+
+If your browser doesn't automatically open, please visit this URL
+https://wallet.betanet.near.org/login/?title=NEAR+Shell&public_key=ed25519%xxxxxxxxxm&success
+_url=http%3A%2F%2F127.0.0.1%3A5000
+
+
+#+END_SRC
+
+浏览器打开这个连接，然后用钱包授权访问，
+
+
+[[file:img/login2.png]]
+
+
+
+[[file:img/login3.png]]
+
+
+
+之后将钱包的ID填入终端：
+
+
+[[file:img/login1.png]]
+
+
+这个会在相应目录下生成身份文件:
+
+#+BEGIN_SRC
+ls ~/.near-credentials/betanet/hashquarkdemo.betanet.json
+/home/ubuntu/.near-credentials/betanet/hashquarkdemo.betanet.json
+
+
+#+END_SRC
+
+
+
+
+* 创建验证者账户
+
+在工作目录里，采用如下命令创建验证者账户:
+#+BEGIN_SRC
+near create_account stakingPool_ID --masterAccount=account_ID
+
+#+END_SRC
+
+在我们的例子里可以采用(初始50NEAR):
+#+BEGIN_SRC
+near create_account pool.hashquarkdemo.betanet --masterAccount=hashquarkdemo.betanet --initialBalance 50
+
+->
+
+Using options: {
+  masterAccount: 'hashquarkdemo.betanet',
+  initialBalance: '50000000000000000000000000',
+  networkId: 'betanet',
+  nodeUrl: 'https://rpc.betanet.near.org',
+  contractName: undefined,
+  walletUrl: 'https://wallet.betanet.near.org',
+  helperUrl: 'https://helper.betanet.near.org',
+  helperAccount: 'betanet',
+  useLedgerKey: "44'/397'/0'/0'/1'",
+  newLedgerKey: "44'/397'/0'/0'/1'",
+  accountId: 'pool.hashquarkdemo.betanet'
+}
+near create_account is deprecated and will be removed in version 0.26.0. Please use near create-account.
+Account pool.hashquarkdemo.betanet for network "betanet" was created
+
+#+END_SRC
+
+在 ~~/.near-credentials/betanet/~ 可以看到新创建的pool的权限文件:
+
+[[file:img/login4.png]]
+
+
+
+* 部署合约
+** 编译
+在工作目录下，下载合约仓库
+
+#+BEGIN_SRC
+
+git clone https://github.com/near/initial-contracts && cd initial-contracts/staking-pool
+#+END_SRC
+
+配置rustup添加target
+#+BEGIN_SRC
+rustup +stable target add wasm32-unknown-unknown
+
+#+END_SRC
+
+编译合约
+#+BEGIN_SRC
+./build.sh
+
+#+END_SRC
+
+** 启动节点
+
+采用nearup的方式启动节点，默认会采用docker的方式安装，这也是比较方便的方式:
+#+BEGIN_SRC
+nearup betanet
+
+#+END_SRC
+
+
+如果不用docker，那么可以手动编译:
+#+BEGIN_SRC
+
+# 安装
+cd ~ && git clone -b beta https://github.com/nearprotocol/nearcore.git && cd nearcore
+git branch
+make release
+
+source $HOME/.nearup/env
+
+
+# 相应的启动方式
+nearup betanet --nodocker --binary-path ~/nearcore/target/release
+
+#+END_SRC
+
+
+启动后输入上面创建的验证者账户: ~pool.hashquarkdemo.betanet~
+
+查看日志: ~docker logs --follow nearcore~
+
+查看公钥:
+#+BEGIN_SRC
+cat ~/.near/betanet/validator_key.json |grep "public_key"
+
+#+END_SRC
+
+** 部署合约
+部署刚刚编译好的wasm合约：
+
+#+BEGIN_SRC
+
+near deploy --accountId=pool.hashquarkdemo.betanet --wasmFile=initial-contracts/staking-pool/res/staking_pool.wasm
+
+#+END_SRC
+
+** 初始化
+
+设置stake pool的owner_id，和费率：
+
+#+BEGIN_SRC
+near call pool.hashquarkdemo.betanet new '{"owner_id": "hashquarkdemo.betanet", "stake_public_key": "{上面输出的公钥}", "reward_fee_fraction": {"numerator": 10, "denominator": 100}}' --account_id hashquarkdemo.betanet
+
+
+#+END_SRC
+
+
+
+** 锁定合约
+
+锁定的目的是防止合约变得，保护抵押者资金安全：
+
+#+BEGIN_SRC
+near delete-key --accessKey {上面输出的公钥} --accountId pool.hashquarkdemo.betanet
+
+#+END_SRC
+
+可以在浏览器上看到一个锁定的交易，图片为红色的叉叉状。
+
+* 抵押
+
+
+整体流程是先存款，再抵押：
+
+
+#+BEGIN_SRC
+# 存入20Near
+near call pool.hashquarkdemo.betanet deposit '{}' --accountId hashquarkdemo.betanet --amount 20
+
+
+# 抵押20Near,注意这的单位，得转化乘上1e24
+near call pool.hashquarkdemo.betanet stake '{"amount": "2000000000000000000000000"}' --accountId hashquarkdemo.betanet
+
+#+END_SRC
